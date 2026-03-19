@@ -152,26 +152,39 @@ app.delete("/api/post/delete/:id", async (req, res) => {
         const result = await pool.query('DELETE FROM posts WHERE id = $1 RETURNING *',
             [id]
         );
-        if (result.rows.length === 0){
-            return res.status(404).json({message: "Post not found"});
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Post not found" });
         }
-        res.status(200).json({message: "post deleted successfully",
+        res.status(200).json({
+            message: "post deleted successfully",
             data: result.rows[0],
         })
 
     } catch (e) {
         console.error(e);
-        res.status(500),json({messag: "Failed to delete post"})
+        res.status(500), json({ messag: "Failed to delete post" })
     }
 
 })
 
-// app.delete("/api/post/delete/:id", (req, res) => {
-//     const id = Number(req.params.id);
+///////////////////signup///////////////////////////
 
-//     let post = posts.filter((post) => {
-//         console.log("🚀 ~ post:", post)
-//         return post.id !== id;
-//     })
-//     res.json({ message: "post deleted", post })
-// })
+app.post("/api/user/signup", async (req, res) => {
+    try {
+        const { first_name, last_name, dob, gender, address, email, phone, password } = req.body;
+        const result = await pool.query('INSERT INTO users (first_name, last_name, dob, gender, address, email, phone, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+        [first_name, last_name, dob, gender, address, email, phone, password]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Unable to register user at that time" })
+        }
+        res.status(201).json({
+            message: "User sign up successful",
+            data: result.rows[0]
+        })
+
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: "User sign up failed" });
+    }
+})
