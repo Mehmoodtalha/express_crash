@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require("path");
 const pool = require("./db");
+const { json } = require('stream/consumers');
 
 
 
@@ -124,7 +125,7 @@ app.get("/api/posts/:id", async (req, res) => {
 app.put("/api/posts/:id", async (req, res) => {
     try {
         const id = Number(req.params.id);
-        const {title, description}= req.body;
+        const { title, description } = req.body;
         const result = await pool.query(
             'UPDATE posts SET title = $1, description = $2 WHERE id = $3 RETURNING *',
             [title, description, id]
@@ -143,17 +144,34 @@ app.put("/api/posts/:id", async (req, res) => {
     }
 });
 
-////////////////////////////////////////////////////////////
-app.delete("/api/post/delete/:id", (req, res) => {
-    const id = Number(req.params.id);
+//////////////delete post by id///////////////////////
+app.delete("/api/post/delete/:id", async (req, res) => {
+
+    try {
+        const id = Number(req.params.id);
+        const result = await pool.query('DELETE FROM posts WHERE id = $1 RETURNING *',
+            [id]
+        );
+        if (result.rows.length === 0){
+            return res.status(404).json({message: "Post not found"});
+        }
+        res.status(200).json({message: "post deleted successfully",
+            data: result.rows[0],
+        })
+
+    } catch (e) {
+        console.error(e);
+        res.status(500),json({messag: "Failed to delete post"})
+    }
 
 })
-app.delete("/api/post/delete/:id", (req, res) => {
-    const id = Number(req.params.id);
 
-    let post = posts.filter((post) => {
-        console.log("🚀 ~ post:", post)
-        return post.id !== id;
-    })
-    res.json({ message: "post deleted", post })
-})
+// app.delete("/api/post/delete/:id", (req, res) => {
+//     const id = Number(req.params.id);
+
+//     let post = posts.filter((post) => {
+//         console.log("🚀 ~ post:", post)
+//         return post.id !== id;
+//     })
+//     res.json({ message: "post deleted", post })
+// })
