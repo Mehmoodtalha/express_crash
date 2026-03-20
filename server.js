@@ -4,6 +4,7 @@ const pool = require("./db");
 const { json } = require('stream/consumers');
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+// const { use } = require('react');
 
 
 
@@ -172,25 +173,6 @@ app.delete("/api/post/delete/:id", async (req, res) => {
 
 ///////////////////signup///////////////////////////
 
-// app.post("/api/user/signup", async (req, res) => {
-//     try {
-//         const { first_name, last_name, dob, gender, address, email, phone, password } = req.body;
-//         const result = await pool.query('INSERT INTO users (first_name, last_name, dob, gender, address, email, phone, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-//         [first_name, last_name, dob, gender, address, email, phone, password]
-//         );
-//         if (result.rows.length === 0) {
-//             return res.status(404).json({ message: "Unable to register user at that time" })
-//         }
-//         res.status(201).json({
-//             message: "User sign up successful",
-//             data: result.rows[0]
-//         })
-
-//     } catch (e) {
-//         console.error(e);
-//         res.status(500).json({ message: "User sign up failed" });
-//     }
-// })
 app.post("/api/user/signup", async (req, res) => {
     try {
         const {
@@ -246,5 +228,59 @@ app.post("/api/user/signup", async (req, res) => {
     } catch (e) {
         console.error(e);
         res.status(500).json({ message: "User sign up failed" });
+    }
+});
+
+///////////////////////login /////////////////////////
+
+app.post("/api/user/login", async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ message: "Email and password are required" });
+        }
+
+        const result = await pool.query(
+            "SELECT * FROM users WHERE email = $1",
+            [email]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        const user = result.rows[0];
+
+        const isPasswordMatch = await bcrypt.compare(password, user.password);
+
+        if (!isPasswordMatch) {
+            return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            process.env.JWT_SECRET,
+            { expiresIn: "1d" }
+        );
+
+        res.status(200).json({
+            message: "Logged in successfully",
+            token,
+            data: {
+                id: user.id,
+                first_name: user.first_name,
+                last_name: user.last_name,
+                dob: user.dob,
+                gender: user.gender,
+                address: user.address,
+                email: user.email,
+                phone: user.phone,
+                created_at: user.created_at,
+            },
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ message: "Login failed" });
     }
 });
