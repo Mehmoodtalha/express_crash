@@ -2,6 +2,9 @@ const express = require('express');
 const path = require("path");
 const pool = require("./db");
 const { json } = require('stream/consumers');
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+
 
 
 
@@ -169,22 +172,79 @@ app.delete("/api/post/delete/:id", async (req, res) => {
 
 ///////////////////signup///////////////////////////
 
+// app.post("/api/user/signup", async (req, res) => {
+//     try {
+//         const { first_name, last_name, dob, gender, address, email, phone, password } = req.body;
+//         const result = await pool.query('INSERT INTO users (first_name, last_name, dob, gender, address, email, phone, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+//         [first_name, last_name, dob, gender, address, email, phone, password]
+//         );
+//         if (result.rows.length === 0) {
+//             return res.status(404).json({ message: "Unable to register user at that time" })
+//         }
+//         res.status(201).json({
+//             message: "User sign up successful",
+//             data: result.rows[0]
+//         })
+
+//     } catch (e) {
+//         console.error(e);
+//         res.status(500).json({ message: "User sign up failed" });
+//     }
+// })
 app.post("/api/user/signup", async (req, res) => {
     try {
-        const { first_name, last_name, dob, gender, address, email, phone, password } = req.body;
-        const result = await pool.query('INSERT INTO users (first_name, last_name, dob, gender, address, email, phone, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-        [first_name, last_name, dob, gender, address, email, phone, password]
-        );
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: "Unable to register user at that time" })
+        const {
+            first_name,
+            last_name,
+            dob,
+            gender,
+            address,
+            email,
+            phone,
+            password,
+        } = req.body;
+
+        if (!first_name || !last_name || !dob || !gender || !email || !password) {
+            return res.status(400).json({ message: "Required fields are missing" });
         }
+
+        if (password.length < 8) {
+            return res
+                .status(400)
+                .json({ message: "Password must be at least 8 characters" });
+        }
+
+        const existingUser = await pool.query(
+            "SELECT * FROM users WHERE email = $1",
+            [email]
+        );
+
+        if (existingUser.rows.length > 0) {
+            return res.status(409).json({ message: "Email already exists" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const result = await pool.query(
+            "INSERT INTO users (first_name, last_name, dob, gender, address, email, phone, password) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, first_name, last_name, dob, gender, address, email, phone, created_at",
+            [first_name, last_name, dob, gender, address, email, phone, hashedPassword]
+        );
+
+        const user = result.rows[0];
+
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            process.env.JWT_SECRET,
+            { expiresIn: "1d" }
+        );
+
         res.status(201).json({
             message: "User sign up successful",
-            data: result.rows[0]
-        })
-
+            token,
+            user,
+        });
     } catch (e) {
         console.error(e);
         res.status(500).json({ message: "User sign up failed" });
     }
-})
+});
