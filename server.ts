@@ -3,6 +3,7 @@ import express, { NextFunction, Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import pool from "./db";
+import crypto from "crypto";
 
 type PostBody = {
   title: string;
@@ -244,9 +245,21 @@ app.post(
         { expiresIn: "1d" }
       );
 
+      const session_token = crypto.randomBytes(32).toString("hex");
+      const session_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const refresh_token = crypto.randomBytes(32).toString("hex");
+      const refresh_expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      const session_result = await pool.query(
+        "INSERT INTO user_sessions (user_id, session_token, refresh_token, session_expires_at, refresh_expires_at) VALUES ($1, $2, $3, $4, $5)",
+        [user.id, session_token, refresh_token, session_expires_at, refresh_expires_at]
+      );
+
+
       res.status(201).json({
         message: "User sign up successful",
         token,
+        session_token,
+        refresh_token,
         user,
       });
     } catch (error) {
@@ -289,9 +302,19 @@ app.post(
         { expiresIn: "1d" }
       );
 
+      const session_token = crypto.randomBytes(32).toString("hex");
+      const session_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const refresh_token = crypto.randomBytes(32).toString("hex");
+      const refresh_expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      const session_result = await pool.query(
+        "INSERT INTO user_sessions (user_id, session_token, refresh_token, session_expires_at, refresh_expires_at) VALUES ($1, $2, $3, $4, $5)",
+        [user.id, session_token, refresh_token, session_expires_at, refresh_expires_at]
+      );
       res.status(200).json({
         message: "Logged in successfully",
         token,
+        session_token,
+        refresh_token,
         data: {
           id: user.id,
           first_name: user.first_name,
