@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import pool from "./db";
@@ -25,6 +25,19 @@ type LoginBody = {
   password: string;
 };
 
+type AuthPayload = {
+  id: number;
+  email: string;
+};
+
+type AuthenticatedRequest<
+  P = Record<string, string>,
+  ResBody = unknown,
+  ReqBody = unknown
+> = Request<P, ResBody, ReqBody> & {
+  user?: AuthPayload;
+};
+
 const jwtSecret = process.env.JWT_SECRET;
 
 if (!jwtSecret) {
@@ -35,54 +48,95 @@ const app = express();
 
 app.use(express.json());
 
-app.post("/api/post", async (req: Request<{}, {}, PostBody>, res: Response) => {
-  try {
-    const { title, description } = req.body;
+const authenticateToken = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
 
-    const result = await pool.query(
-      "INSERT INTO posts (title, description) VALUES ($1, $2) RETURNING *",
-      [title, description]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("POST ERROR:", error);
-    res.status(500).json({ message: "Failed to create post" });
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res
+      .status(401)
+      .json({ message: "Authorization token is required" });
   }
-});
 
-app.get("/api/posts", async (_req: Request, res: Response) => {
+  const token = authHeader.split(" ")[1];
+
   try {
-    const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
-    res.json(result.rows);
+    const decoded = jwt.verify(token, jwtSecret) as AuthPayload;
+    req.user = decoded;
+    next();
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Failed to fetch posts" });
+    return res.status(401).json({ message: "Invalid or expired token" });
   }
-});
+};
 
-app.get("/api/posts/:id", async (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const id = Number(req.params.id);
-    const result = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
+app.post(
+  "/api/post",
+  authenticateToken,
+  async (req: AuthenticatedRequest<{}, unknown, PostBody>, res: Response) => {
+    try {
+      const { title, description } = req.body;
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Post not found" });
+      const result = await pool.query(
+        "INSERT INTO posts (title, description) VALUES ($1, $2) RETURNING *",
+        [title, description]
+      );
+
+      res.status(201).json(result.rows[0]);
+    } catch (error) {
+      console.error("POST ERROR:", error);
+      res.status(500).json({ message: "Failed to create post" });
     }
-
-    res.status(200).json({
-      message: "Success",
-      data: result.rows[0],
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Failed to get post by id" });
   }
-});
+);
+
+app.get(
+  "/api/posts",
+  authenticateToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
+      res.json(result.rows);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Failed to fetch posts" });
+    }
+  }
+);
+
+app.get(
+  "/api/posts/:id",
+  authenticateToken,
+  async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      const result = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Post not found" });
+      }
+
+      res.status(200).json({
+        message: "Success",
+        data: result.rows[0],
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Failed to get post by id" });
+    }
+  }
+);
 
 app.put(
   "/api/posts/:id",
-  async (req: Request<{ id: string }, {}, PostBody>, res: Response) => {
+  authenticateToken,
+  async (
+    req: AuthenticatedRequest<{ id: string }, unknown, PostBody>,
+    res: Response
+  ) => {
     try {
       const id = Number(req.params.id);
       const { title, description } = req.body;
@@ -109,7 +163,8 @@ app.put(
 
 app.delete(
   "/api/post/delete/:id",
-  async (req: Request<{ id: string }>, res: Response) => {
+  authenticateToken,
+  async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
     try {
       const id = Number(req.params.id);
       const result = await pool.query(
@@ -257,3 +312,58 @@ app.post(
 );
 
 app.listen(8000, () => console.log("Server is running on port 8000"));
+
+
+///////////////////////login /////////////////////////
+
+// app.post("/api/user/login", async (req, res) => {
+//     try {
+//         const { email, password } = req.body;
+
+//         if (!email || !password) {
+//             return res.status(400).json({ message: "Email and password are required" });
+//         }
+
+//         const result = await pool.query(
+//             "SELECT * FROM users WHERE email = $1",
+//             [email]
+//         );
+
+//         if (result.rows.length === 0) {
+//             return res.status(401).json({ message: "Invalid email or password" });
+//         }
+
+//         const user = result.rows[0];
+
+//         const isPasswordMatch = await bcrypt.compare(password, user.password);
+
+//         if (!isPasswordMatch) {
+//             return res.status(401).json({ message: "Invalid email or password" });
+//         }
+
+//         const token = jwt.sign(
+//             { id: user.id, email: user.email },
+//             process.env.JWT_SECRET,
+//             { expiresIn: "1d" }
+//         );
+
+//         res.status(200).json({
+//             message: "Logged in successfully",
+//             token,
+//             data: {
+//                 id: user.id,
+//                 first_name: user.first_name,
+//                 last_name: user.last_name,
+//                 dob: user.dob,
+//                 gender: user.gender,
+//                 address: user.address,
+//                 email: user.email,
+//                 phone: user.phone,
+//                 created_at: user.created_at,
+//             },
+//         });
+//     } catch (e) {
+//         console.error(e);
+//         res.status(500).json({ message: "Login failed" });
+//     }
+// });
