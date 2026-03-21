@@ -359,6 +359,19 @@ app.post(
   "/api/user/login",
   async (req: Request<{}, {}, LoginBody>, res: Response) => {
     try {
+      const rateLimitKey = `rate:login:${req.ip}`;
+      const attempts = await redisClient.incr(rateLimitKey);
+
+      if (attempts === 1) {
+        await redisClient.expire(rateLimitKey, 5 * 60);
+      }
+
+      if (attempts > 5) {
+        return res.status(429).json({
+          message: "Too many login attempts. Please try again later.",
+        });
+      }
+
       const { email, password } = req.body;
 
       if (!email || !password) {
@@ -397,6 +410,7 @@ app.post(
         [user.id, session_token, refresh_token, session_expires_at, refresh_expires_at]
       );
       await storeTokensInRedis(user.id, session_token, refresh_token);
+      await redisClient.del(rateLimitKey);
       res.status(200).json({
         message: "Logged in successfully",
         token,
