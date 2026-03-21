@@ -26,9 +26,13 @@ type LoginBody = {
   password: string;
 };
 
+type RefreshTokenBody = {
+  refresh_token: string;
+};
+
 type AuthPayload = {
   id: number;
-  email: string;
+  // email: string;
 };
 
 type AuthenticatedRequest<
@@ -37,6 +41,7 @@ type AuthenticatedRequest<
   ReqBody = unknown
 > = Request<P, ResBody, ReqBody> & {
   user?: AuthPayload;
+  sessionToken?: string;
 };
 
 const jwtSecret = process.env.JWT_SECRET;
@@ -48,35 +53,77 @@ if (!jwtSecret) {
 const app = express();
 
 app.use(express.json());
-
-const authenticateToken = (
+const authenticateSessionToken = async (
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res
-      .status(401)
-      .json({ message: "Authorization token is required" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
   try {
-    const decoded = jwt.verify(token, jwtSecret) as AuthPayload;
-    req.user = decoded;
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Session token is required" });
+    }
+
+    const sessionToken = authHeader.split(" ")[1];
+
+    const result = await pool.query(
+      "SELECT * FROM user_sessions WHERE session_token = $1",
+      [sessionToken]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: "Invalid session token" });
+    }
+
+    const session = result.rows[0];
+
+    if (new Date(session.session_expires_at) < new Date()) {
+      return res.status(401).json({ message: "Session token has expired" });
+    }
+
+    req.user = {
+      id: session.user_id,
+    };
+    req.sessionToken = sessionToken;
+
     next();
   } catch (error) {
     console.error(error);
-    return res.status(401).json({ message: "Invalid or expired token" });
+    res.status(500).json({ message: "Authentication failed" });
   }
 };
 
+// const authenticateToken = (
+//   req: AuthenticatedRequest,
+//   res: Response,
+//   next: NextFunction
+// ) => {
+//   const authHeader = req.headers.authorization;
+
+//   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+//     return res
+//       .status(401)
+//       .json({ message: "Authorization token is required" });
+//   }
+
+//   const token = authHeader.split(" ")[1];
+
+//   try {
+//     const decoded = jwt.verify(token, jwtSecret) as AuthPayload;
+//     req.user = decoded;
+//     next();
+//   } catch (error) {
+//     console.error(error);
+//     return res.status(401).json({ message: "Invalid or expired token" });
+//   }
+// };
+
 app.post(
   "/api/post",
-  authenticateToken,
+  // authenticateToken,
+  authenticateSessionToken,
+
   async (req: AuthenticatedRequest<{}, unknown, PostBody>, res: Response) => {
     try {
       const { title, description } = req.body;
@@ -96,7 +143,8 @@ app.post(
 
 app.get(
   "/api/posts",
-  authenticateToken,
+  // authenticateToken,
+  authenticateSessionToken,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
@@ -110,7 +158,8 @@ app.get(
 
 app.get(
   "/api/posts/:id",
-  authenticateToken,
+  // authenticateToken,
+  authenticateSessionToken,
   async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
     try {
       const id = Number(req.params.id);
@@ -133,7 +182,8 @@ app.get(
 
 app.put(
   "/api/posts/:id",
-  authenticateToken,
+  // authenticateToken,
+  authenticateSessionToken,
   async (
     req: AuthenticatedRequest<{ id: string }, unknown, PostBody>,
     res: Response
@@ -164,7 +214,8 @@ app.put(
 
 app.delete(
   "/api/post/delete/:id",
-  authenticateToken,
+  // authenticateToken,
+  authenticateSessionToken,
   async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
     try {
       const id = Number(req.params.id);
@@ -333,6 +384,89 @@ app.post(
     }
   }
 );
+
+app.post(
+  "/api/user/refresh-token",
+  async (req: Request<{}, {}, RefreshTokenBody>, res: Response) => {
+    try {
+      const { refresh_token } = req.body;
+
+      if (!refresh_token) {
+        return res.status(400).json({ message: "Refresh token is required" });
+      }
+
+      const sessionResult = await pool.query(
+        "SELECT * FROM user_sessions WHERE refresh_token = $1",
+        [refresh_token]
+      );
+
+      if (sessionResult.rows.length === 0) {
+        return res.status(401).json({ message: "Invalid refresh token" });
+      }
+
+      const session = sessionResult.rows[0];
+
+      if (new Date(session.refresh_expires_at) < new Date()) {
+        return res.status(401).json({ message: "Refresh token has expired" });
+      }
+
+      const new_session_token = crypto.randomBytes(32).toString("hex");
+      const new_refresh_token = crypto.randomBytes(32).toString("hex");
+      const new_session_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const new_refresh_expires_at = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000
+      );
+
+      await pool.query(
+        "UPDATE user_sessions SET session_token = $1, refresh_token = $2, session_expires_at = $3, refresh_expires_at = $4 WHERE id = $5",
+        [
+          new_session_token,
+          new_refresh_token,
+          new_session_expires_at,
+          new_refresh_expires_at,
+          session.id,
+        ]
+      );
+
+      res.status(200).json({
+        message: "Tokens refreshed successfully",
+        session_token: new_session_token,
+        refresh_token: new_refresh_token,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Failed to refresh token" });
+    }
+  }
+);
+
+app.post(
+  "/api/user/logout",
+  authenticateSessionToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.sessionToken) {
+        return res.status(401).json({ message: "Session token is required" });
+      }
+
+      const result = await pool.query(
+        "DELETE FROM user_sessions WHERE session_token = $1 RETURNING *",
+        [req.sessionToken]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      res.status(200).json({ message: "Logged out successfully" });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: "Logout failed" });
+    }
+  }
+);
+
+
 
 app.listen(8000, () => console.log("Server is running on port 8000"));
 
