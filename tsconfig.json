@@ -9,6 +9,6 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "dist"
   },
-  "include": ["server.ts", "db.ts"],
+  "include": ["server.ts", "db.ts", "redis.ts"],
   "exclude": ["node_modules", "dist"]
 }

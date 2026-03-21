@@ -4,6 +4,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import pool from "./db";
 import crypto from "crypto";
+import redisClient from "./redis";
 
 type PostBody = {
   title: string;
@@ -35,6 +36,16 @@ type AuthPayload = {
   // email: string;
 };
 
+type RedisSessionData = {
+  userId: number;
+  refreshToken: string;
+};
+
+type RedisRefreshData = {
+  userId: number;
+  sessionToken: string;
+};
+
 type AuthenticatedRequest<
   P = Record<string, string>,
   ResBody = unknown,
@@ -52,7 +63,35 @@ if (!jwtSecret) {
 
 const app = express();
 
+const SESSION_TTL_SECONDS = 24 * 60 * 60;
+const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 app.use(express.json());
+
+const storeTokensInRedis = async (
+  userId: number,
+  sessionToken: string,
+  refreshToken: string
+) => {
+  await redisClient.set(
+    `session:${sessionToken}`,
+    JSON.stringify({
+      userId,
+      refreshToken,
+    } satisfies RedisSessionData),
+    { EX: SESSION_TTL_SECONDS }
+  );
+
+  await redisClient.set(
+    `refresh:${refreshToken}`,
+    JSON.stringify({
+      userId,
+      sessionToken,
+    } satisfies RedisRefreshData),
+    { EX: REFRESH_TTL_SECONDS }
+  );
+};
+
 const authenticateSessionToken = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -67,23 +106,18 @@ const authenticateSessionToken = async (
 
     const sessionToken = authHeader.split(" ")[1];
 
-    const result = await pool.query(
-      "SELECT * FROM user_sessions WHERE session_token = $1",
-      [sessionToken]
-    );
+    const sessionData = await redisClient.get(`session:${sessionToken}`);
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Invalid session token" });
+    if (!sessionData) {
+      return res
+        .status(401)
+        .json({ message: "Invalid or expired session token" });
     }
 
-    const session = result.rows[0];
-
-    if (new Date(session.session_expires_at) < new Date()) {
-      return res.status(401).json({ message: "Session token has expired" });
-    }
+    const session = JSON.parse(sessionData) as RedisSessionData;
 
     req.user = {
-      id: session.user_id,
+      id: session.userId,
     };
     req.sessionToken = sessionToken;
 
@@ -304,6 +338,7 @@ app.post(
         "INSERT INTO user_sessions (user_id, session_token, refresh_token, session_expires_at, refresh_expires_at) VALUES ($1, $2, $3, $4, $5)",
         [user.id, session_token, refresh_token, session_expires_at, refresh_expires_at]
       );
+      await storeTokensInRedis(user.id, session_token, refresh_token);
 
 
       res.status(201).json({
@@ -361,6 +396,7 @@ app.post(
         "INSERT INTO user_sessions (user_id, session_token, refresh_token, session_expires_at, refresh_expires_at) VALUES ($1, $2, $3, $4, $5)",
         [user.id, session_token, refresh_token, session_expires_at, refresh_expires_at]
       );
+      await storeTokensInRedis(user.id, session_token, refresh_token);
       res.status(200).json({
         message: "Logged in successfully",
         token,
@@ -395,20 +431,15 @@ app.post(
         return res.status(400).json({ message: "Refresh token is required" });
       }
 
-      const sessionResult = await pool.query(
-        "SELECT * FROM user_sessions WHERE refresh_token = $1",
-        [refresh_token]
-      );
+      const refreshData = await redisClient.get(`refresh:${refresh_token}`);
 
-      if (sessionResult.rows.length === 0) {
-        return res.status(401).json({ message: "Invalid refresh token" });
+      if (!refreshData) {
+        return res
+          .status(401)
+          .json({ message: "Invalid or expired refresh token" });
       }
 
-      const session = sessionResult.rows[0];
-
-      if (new Date(session.refresh_expires_at) < new Date()) {
-        return res.status(401).json({ message: "Refresh token has expired" });
-      }
+      const session = JSON.parse(refreshData) as RedisRefreshData;
 
       const new_session_token = crypto.randomBytes(32).toString("hex");
       const new_refresh_token = crypto.randomBytes(32).toString("hex");
@@ -418,14 +449,22 @@ app.post(
       );
 
       await pool.query(
-        "UPDATE user_sessions SET session_token = $1, refresh_token = $2, session_expires_at = $3, refresh_expires_at = $4 WHERE id = $5",
+        "UPDATE user_sessions SET session_token = $1, refresh_token = $2, session_expires_at = $3, refresh_expires_at = $4 WHERE refresh_token = $5",
         [
           new_session_token,
           new_refresh_token,
           new_session_expires_at,
           new_refresh_expires_at,
-          session.id,
+          refresh_token,
         ]
+      );
+
+      await redisClient.del(`session:${session.sessionToken}`);
+      await redisClient.del(`refresh:${refresh_token}`);
+      await storeTokensInRedis(
+        session.userId,
+        new_session_token,
+        new_refresh_token
       );
 
       res.status(200).json({
@@ -448,6 +487,15 @@ app.post(
       if (!req.sessionToken) {
         return res.status(401).json({ message: "Session token is required" });
       }
+
+      const sessionData = await redisClient.get(`session:${req.sessionToken}`);
+
+      if (sessionData) {
+        const session = JSON.parse(sessionData) as RedisSessionData;
+        await redisClient.del(`refresh:${session.refreshToken}`);
+      }
+
+      await redisClient.del(`session:${req.sessionToken}`);
 
       const result = await pool.query(
         "DELETE FROM user_sessions WHERE session_token = $1 RETURNING *",
