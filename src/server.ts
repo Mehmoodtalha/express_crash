@@ -1,10 +1,15 @@
 import "dotenv/config";
-import express, { NextFunction, Request, Response } from "express";
+import express, { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import pool from "./db/postgres";
 import crypto from "crypto";
 import redisClient from "./db/redis";
+import {
+  authenticateSessionToken,
+  AuthenticatedRequest,
+  RedisSessionData,
+} from "./middleware/auth";
 
 type PostBody = {
   title: string;
@@ -31,28 +36,9 @@ type RefreshTokenBody = {
   refresh_token: string;
 };
 
-type AuthPayload = {
-  id: number;
-  // email: string;
-};
-
-type RedisSessionData = {
-  userId: number;
-  refreshToken: string;
-};
-
 type RedisRefreshData = {
   userId: number;
   sessionToken: string;
-};
-
-type AuthenticatedRequest<
-  P = Record<string, string>,
-  ResBody = unknown,
-  ReqBody = unknown
-> = Request<P, ResBody, ReqBody> & {
-  user?: AuthPayload;
-  sessionToken?: string;
 };
 
 const jwtSecret = process.env.JWT_SECRET;
@@ -91,67 +77,6 @@ const storeTokensInRedis = async (
     { EX: REFRESH_TTL_SECONDS }
   );
 };
-
-const authenticateSessionToken = async (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Session token is required" });
-    }
-
-    const sessionToken = authHeader.split(" ")[1];
-
-    const sessionData = await redisClient.get(`session:${sessionToken}`);
-
-    if (!sessionData) {
-      return res
-        .status(401)
-        .json({ message: "Invalid or expired session token" });
-    }
-
-    const session = JSON.parse(sessionData) as RedisSessionData;
-
-    req.user = {
-      id: session.userId,
-    };
-    req.sessionToken = sessionToken;
-
-    next();
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Authentication failed" });
-  }
-};
-
-// const authenticateToken = (
-//   req: AuthenticatedRequest,
-//   res: Response,
-//   next: NextFunction
-// ) => {
-//   const authHeader = req.headers.authorization;
-
-//   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//     return res
-//       .status(401)
-//       .json({ message: "Authorization token is required" });
-//   }
-
-//   const token = authHeader.split(" ")[1];
-
-//   try {
-//     const decoded = jwt.verify(token, jwtSecret) as AuthPayload;
-//     req.user = decoded;
-//     next();
-//   } catch (error) {
-//     console.error(error);
-//     return res.status(401).json({ message: "Invalid or expired token" });
-//   }
-// };
 
 app.post(
   "/api/post",
