@@ -10,11 +10,12 @@ import {
   AuthenticatedRequest,
   RedisSessionData,
 } from "./middleware/auth";
+import { createPost, deletePost, getAllPosts, getPostById, updatePost } from "./controllers/post_controller";
 
-type PostBody = {
-  title: string;
-  description: string;
-};
+// type PostBody = {
+//   title: string;
+//   description: string;
+// };
 
 type SignupBody = {
   first_name: string;
@@ -80,122 +81,32 @@ const storeTokensInRedis = async (
 
 app.post(
   "/api/post",
-  // authenticateToken,
   authenticateSessionToken,
-
-  async (req: AuthenticatedRequest<{}, unknown, PostBody>, res: Response) => {
-    try {
-      const { title, description } = req.body;
-
-      const result = await pool.query(
-        "INSERT INTO posts (title, description) VALUES ($1, $2) RETURNING *",
-        [title, description]
-      );
-
-      res.status(201).json(result.rows[0]);
-    } catch (error) {
-      console.error("POST ERROR:", error);
-      res.status(500).json({ message: "Failed to create post" });
-    }
-  }
+  createPost
 );
 
 app.get(
   "/api/posts",
-  // authenticateToken,
   authenticateSessionToken,
-  async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
-      res.json(result.rows);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: "Failed to fetch posts" });
-    }
-  }
+  getAllPosts
 );
 
 app.get(
   "/api/posts/:id",
-  // authenticateToken,
   authenticateSessionToken,
-  async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
-    try {
-      const id = Number(req.params.id);
-      const result = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Post not found" });
-      }
-
-      res.status(200).json({
-        message: "Success",
-        data: result.rows[0],
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: "Failed to get post by id" });
-    }
-  }
+  getPostById
 );
 
 app.put(
   "/api/posts/:id",
-  // authenticateToken,
   authenticateSessionToken,
-  async (
-    req: AuthenticatedRequest<{ id: string }, unknown, PostBody>,
-    res: Response
-  ) => {
-    try {
-      const id = Number(req.params.id);
-      const { title, description } = req.body;
-
-      const result = await pool.query(
-        "UPDATE posts SET title = $1, description = $2 WHERE id = $3 RETURNING *",
-        [title, description, id]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Post cannot be updated" });
-      }
-
-      res.status(200).json({
-        message: "Post updated successfully",
-        data: result.rows[0],
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: "Failed to update post by id" });
-    }
-  }
+  updatePost
 );
 
 app.delete(
   "/api/post/delete/:id",
-  // authenticateToken,
   authenticateSessionToken,
-  async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
-    try {
-      const id = Number(req.params.id);
-      const result = await pool.query(
-        "DELETE FROM posts WHERE id = $1 RETURNING *",
-        [id]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Post not found" });
-      }
-
-      res.status(200).json({
-        message: "Post deleted successfully",
-        data: result.rows[0],
-      });
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ message: "Failed to delete post" });
-    }
-  }
+  deletePost
 );
 
 app.post(

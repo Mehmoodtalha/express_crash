@@ -1,0 +1,105 @@
+import { Response } from "express";
+import pool from "../db/postgres";
+import redisClient from "../db/redis";
+import { AuthenticatedRequest } from "../middleware/auth";
+import {PostBody} from "../types/post";
+
+
+//////////////////create post
+export const createPost = async (req: AuthenticatedRequest<{}, unknown, PostBody>, res: Response) => {
+    try {
+        const { title, description } = req.body;
+
+        const result = await pool.query(
+            "INSERT INTO posts (title, description) VALUES ($1, $2) RETURNING *",
+            [title, description]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error("POST ERROR:", error);
+        res.status(500).json({ message: "Failed to create post" });
+    }
+}
+///////////////get post by id
+export const getPostById = async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
+    try {
+        const id = Number(req.params.id);
+        const result = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
+        res.status(200).json({
+            message: "Success",
+            data: result.rows[0],
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to get post by id" });
+    }
+}
+
+
+//////////////////get all posts
+export const getAllPosts = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+        const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
+        res.json(result.rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to fetch posts" });
+    }
+}
+
+///////////////// update post
+export const updatePost = async (
+    req: AuthenticatedRequest<{ id: string }, unknown, PostBody>,
+    res: Response
+) => {
+    try {
+        const id = Number(req.params.id);
+        const { title, description } = req.body;
+
+        const result = await pool.query(
+            "UPDATE posts SET title = $1, description = $2 WHERE id = $3 RETURNING *",
+            [title, description, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Post cannot be updated" });
+        }
+
+        res.status(200).json({
+            message: "Post updated successfully",
+            data: result.rows[0],
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to update post by id" });
+    }
+}
+///////////////delete post by id
+export const deletePost = async (req: AuthenticatedRequest<{ id: string }>, res: Response) => {
+    try {
+        const id = Number(req.params.id);
+        const result = await pool.query(
+            "DELETE FROM posts WHERE id = $1 RETURNING *",
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: "Post not found" });
+        }
+
+        res.status(200).json({
+            message: "Post deleted successfully",
+            data: result.rows[0],
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Failed to delete post" });
+    }
+}
+
