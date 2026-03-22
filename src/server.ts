@@ -78,31 +78,31 @@ const storeTokensInRedis = async (
     { EX: REFRESH_TTL_SECONDS }
   );
 };
-
+//////////////create post
 app.post(
   "/api/post",
   authenticateSessionToken,
   createPost
 );
-
+/////////////get all posts
 app.get(
   "/api/posts",
   authenticateSessionToken,
   getAllPosts
 );
-
+///////////get post by id
 app.get(
   "/api/posts/:id",
   authenticateSessionToken,
   getPostById
 );
-
+////////////update post
 app.put(
   "/api/posts/:id",
   authenticateSessionToken,
   updatePost
 );
-
+/////////////// delete post
 app.delete(
   "/api/post/delete/:id",
   authenticateSessionToken,
