@@ -68,8 +68,41 @@ export const getPostById = async (
 //////////////////get all posts
 export const getAllPosts = async (req: AuthenticatedRequest, res: Response) => {
     try {
-        const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
-        res.json(result.rows);
+        const page = Number(req.query.page) || 1;
+        const perPage = Number(req.query.perpage) || 10;
+        const search = String(req.query.search || "").trim();
+        const offset = (page - 1) * perPage;
+        let dataQuery = "SELECT * FROM posts";
+        let countQuery = "SELECT COUNT(*) FROM posts";
+        let queryParams: (string | number)[] = [];
+        let countParams: (string | number)[] = [];
+
+        if (search) {
+            dataQuery += " WHERE title ILIKE $1 OR description ILIKE $1";
+            countQuery += " WHERE title ILIKE $1 OR description ILIKE $1";
+            queryParams.push(`%${search}%`);
+            countParams.push(`%${search}%`);
+        }
+        dataQuery += ` ORDER BY id ASC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+        queryParams.push(perPage, offset);
+
+        const postsResult = await pool.query(dataQuery, queryParams);
+        const countResult = await pool.query(countQuery, countParams);
+
+        const totalItems = Number(countResult.rows[0].count);
+        const totalPages = Math.ceil(totalItems / perPage);
+
+        res.status(200).json({
+            data: postsResult.rows,
+            meta: {
+                perPageCount: postsResult.rows.length,
+                totalItems,
+                totalPages,
+                currentPage: page,
+            },
+        });
+        // const result = await pool.query("SELECT * FROM posts ORDER BY id ASC");
+        // res.json(result.rows);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Failed to fetch posts" });
