@@ -2,9 +2,9 @@ import "dotenv/config";
 import express, { NextFunction, Request, Response } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import pool from "./db";
+import pool from "./db/postgres";
 import crypto from "crypto";
-import redisClient from "./redis";
+import redisClient from "./db/redis";
 
 type PostBody = {
   title: string;

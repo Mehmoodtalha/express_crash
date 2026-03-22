@@ -9,6 +9,13 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "dist"
   },
-  "include": ["server.ts", "db.ts", "redis.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/server.ts",
+    "src/db/postgres.ts",
+    "src/db/redis.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
