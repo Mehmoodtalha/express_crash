@@ -118,6 +118,12 @@ export const updatePost = async (
     try {
         const id = Number(req.params.id);
         const { title, description } = req.body;
+        const existingPost = await prisma.posts.findUnique({ where: { id } });
+
+        if (!existingPost) {
+            return res.status(404).json({ message: "Post cannot be updated" });
+        }
+
         const post = await prisma.posts.update({
             where: { id },
             data: { title, description }
@@ -127,10 +133,9 @@ export const updatePost = async (
         //     [title, description, id]
         // );
         // if(result.rows.length===0)
-        if (!post) {
-            return res.status(404).json({ message: "Post cannot be updated" });
-        }
-
+        // if (!post) {
+        //     return res.status(404).json({ message: "Post cannot be updated" });
+        // }
         await redisClient.del(`post:${id}`);
 
         res.status(200).json({
@@ -149,20 +154,24 @@ export const deletePost = async (
 ) => {
     try {
         const id = Number(req.params.id);
-        const result = await pool.query(
-            "DELETE FROM posts WHERE id = $1 RETURNING *",
-            [id]
-        );
+        const existingPost = await prisma.posts.findUnique({ where: { id } });
+        // const result = await pool.query(
+        //     "DELETE FROM posts WHERE id = $1 RETURNING *",
+        //     [id]
+        // );
 
-        if (result.rows.length === 0) {
+        // if (result.rows.length === 0) {
+        if (!existingPost) {
             return res.status(404).json({ message: "Post not found" });
         }
+
+        const post = await prisma.posts.delete({ where: { id } });
 
         await redisClient.del(`post:${id}`);
 
         res.status(200).json({
             message: "Post deleted successfully",
-            data: result.rows[0],
+            data: post,
         });
     } catch (error) {
         console.error(error);
