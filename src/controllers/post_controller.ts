@@ -3,6 +3,7 @@ import pool from "../db/postgres";
 import redisClient from "../db/redis";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { PostBody } from "../types/post";
+import prisma from "../db/prisma"
 
 
 //////////////////create post
@@ -12,13 +13,13 @@ export const createPost = async (
 ) => {
     try {
         const { title, description } = req.body;
+        const post = await prisma.posts.create({ data: { title, description } })
+        // const result = await pool.query(
+        //     "INSERT INTO posts (title, description) VALUES ($1, $2) RETURNING *",
+        //     [title, description]
+        // );
 
-        const result = await pool.query(
-            "INSERT INTO posts (title, description) VALUES ($1, $2) RETURNING *",
-            [title, description]
-        );
-
-        res.status(201).json(result.rows[0]);
+        res.status(201).json(post);
     } catch (error) {
         console.error("POST ERROR:", error);
         res.status(500).json({ message: "Failed to create post" });
@@ -43,13 +44,13 @@ export const getPostById = async (
             });
         }
 
-        const result = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
-
-        if (result.rows.length === 0) {
+        // const result = await pool.query("SELECT * FROM posts WHERE id = $1", [id]);
+        const post = await prisma.posts.findUnique({ where: { id } });
+        if (!post) {
             return res.status(404).json({ message: "Post not found" });
         }
 
-        const post = result.rows[0];
+        // const post = result.rows[0];
 
         await redisClient.set(cacheKey, JSON.stringify(post), { EX: 300 });
 
@@ -117,13 +118,16 @@ export const updatePost = async (
     try {
         const id = Number(req.params.id);
         const { title, description } = req.body;
-
-        const result = await pool.query(
-            "UPDATE posts SET title = $1, description = $2 WHERE id = $3 RETURNING *",
-            [title, description, id]
-        );
-
-        if (result.rows.length === 0) {
+        const post = await prisma.posts.update({
+            where: { id },
+            data: { title, description }
+        });
+        // const result = await pool.query(
+        //     "UPDATE posts SET title = $1, description = $2 WHERE id = $3 RETURNING *",
+        //     [title, description, id]
+        // );
+        // if(result.rows.length===0)
+        if (!post) {
             return res.status(404).json({ message: "Post cannot be updated" });
         }
 
@@ -131,7 +135,7 @@ export const updatePost = async (
 
         res.status(200).json({
             message: "Post updated successfully",
-            data: result.rows[0],
+            data: post,
         });
     } catch (error) {
         console.error(error);
